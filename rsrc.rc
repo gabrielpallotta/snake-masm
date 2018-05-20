@@ -1,0 +1,9 @@
+#define IDM_TEST 1
+#define IDM_HELLO 2
+#define IDM_GOODBYE 3
+#define IDM_EXIT 4
+
+;MOVEABLE PURE LOADONCALL 
+100 BITMAP "imgs/bg.bmp"
+101 BITMAP "imgs/snake.bmp"
+102 BITMAP "imgs/fruit.bmp"
