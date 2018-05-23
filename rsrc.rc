@@ -7,3 +7,4 @@
 100 BITMAP "imgs/bg.bmp"
 101 BITMAP "imgs/snake.bmp"
 102 BITMAP "imgs/fruit.bmp"
+500 ICON MOVEABLE PURE LOADONCALL DISCARDABLE "imgs/icon.ico"

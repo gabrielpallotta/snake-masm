@@ -1,13 +1,15 @@
 ; #########################################################################
 ;
-;             GENERIC.ASM is a roadmap around a standard 32 bit 
-;              windows application skeleton written in MASM32.
+;                               Snake game
+;                              Is it clear?
 ;
 ; #########################################################################
 
 ;           Assembler specific instructions for 32 bit ASM code
 
-      .386                   ; minimum processor needed for 32 bit
+    ; EU MUDEI ISSO ANTES TAVA .386 E AGORA FICOU .586 PRA PODER GERAR NUMEROS ALEATORIOS!!!
+    ; ATENÇÃO!
+      .586                   ; minimum processor needed for 32 bit
       .model flat, stdcall   ; FLAT memory model & STDCALL calling
       option casemap :none   ; set code to case sensitive
 
@@ -16,7 +18,7 @@
       ; ---------------------------------------------
       ; main include file with equates and structures
       ; ---------------------------------------------
-      include \masm32\include\windows.inc
+      include C:\masm32\include\windows.inc
 
       ; -------------------------------------------------------------
       ; In MASM32, each include file created by the L2INC.EXE utility
@@ -25,13 +27,14 @@
       ; file for that library.
       ; -------------------------------------------------------------
 
-      include \masm32\include\user32.inc
-      include \masm32\include\kernel32.inc
-      include \masm32\include\gdi32.inc
+      include C:\masm32\include\user32.inc
+      include C:\masm32\include\kernel32.inc
+      include C:\masm32\include\gdi32.inc
 
-      includelib \masm32\lib\user32.lib
-      includelib \masm32\lib\kernel32.lib
-      includelib \masm32\lib\gdi32.lib
+      includelib C:\masm32\lib\user32.lib
+      includelib C:\masm32\lib\kernel32.lib
+      includelib C:\masm32\lib\gdi32.lib
+      includelib C:\masm32\lib\
 
 ; #########################################################################
 
@@ -86,11 +89,15 @@
 
         WinMain PROTO :DWORD,:DWORD,:DWORD,:DWORD
         WndProc PROTO :DWORD,:DWORD,:DWORD,:DWORD
-        TopXY PROTO   :DWORD,:DWORD
+        TopXY  PROTO  :DWORD,:DWORD
+        Random PROTO  :DWORD
 
 ; declaração de constantes
 .const
-        IDB_MAIN  equ 1   ; numero do bitmap
+        BMP_BG  equ 100 
+        BMP_SNAKE  equ 101 
+        BMP_FRUIT  equ 102 
+
         WM_FINISH equ WM_USER+100h
         BOARD_HEIGHT equ 15
         BOARD_WIDTH equ 15
@@ -112,23 +119,37 @@
         hWnd          dd 0
         hInstance     dd 0
 
-        sprite        dd 0
+        ; variaveis para while
+        i             dd 0
+        j             dd 0
+
+        ; variaveis para numeros aleatorios
+        prng_x        dd 0
+        prng_a        dd 100711433
+
+        snakeX        dd BOARD_COUNT dup(-1)
+        snakeY        dd BOARD_COUNT dup(-1)
+
 
     .data?
-        ; coordenadas
-        fruit         POINT<> 
-        snake         POINT<> BOARD_COUNT  dup(?) 
+        ; coordenadas 
+        fruitX        dd ?  
+        fruitY        dd ?  
+
+        direction     dd ?
         
-
-
         ; handle dos bitmaps
-        hBmpSnake     dd      ?
-        hBmpBg        dd      ?
-        hBmpFruit     dd      ?
+        hBmpSnake     dd ?
+        hBmpBg        dd ?
+        hBmpFruit     dd ?
+
+        ; handle compativel
+        hCompatibleDC dd ?
  
         ; threads
-        ThreadID      DWORD   ?
-        hEventStart   HANDLE  ?
+        ThreadID      DWORD  ?
+        hEventStart   HANDLE ?
+        
 
 ; #########################################################################
 
@@ -140,7 +161,7 @@
 ; address.
 ; ------------------------------------------------------------------------
 
-    .code
+.code
 
 ; -----------------------------------------------------------------------
 ; The label "start:" is the address of the start of the code section and
@@ -194,9 +215,9 @@ WinMain proc hInst     :DWORD,
         mov wc.hbrBackground,  COLOR_BTNFACE+1     ; system color
         mov wc.lpszMenuName,   NULL
         mov wc.lpszClassName,  offset szClassName  ; window class name
-          invoke LoadIcon,hInst,500    ; icon ID   ; resource icon
+        invoke LoadIcon, hInst, 500    ; icon ID   ; resource icon
         mov wc.hIcon,          eax
-          invoke LoadCursor,NULL,IDC_ARROW         ; system cursor
+        invoke LoadCursor, NULL, IDC_ARROW         ; system cursor
         mov wc.hCursor,        eax
         mov wc.hIconSm,        0
 
@@ -206,8 +227,8 @@ WinMain proc hInst     :DWORD,
         ; Centre window at following size
         ;================================
 
-        mov Wwd, TILE_SIZE * BOARD_WIDTH
-        mov Wht, TILE_SIZE * BOARD_HEIGHT
+        mov Wwd, TILE_SIZE * BOARD_WIDTH + 10
+        mov Wht, TILE_SIZE * BOARD_HEIGHT + 32
 
         invoke GetSystemMetrics,SM_CXSCREEN ; get screen width in pixels
         invoke TopXY,Wwd,eax
@@ -223,7 +244,7 @@ WinMain proc hInst     :DWORD,
         invoke CreateWindowEx,WS_EX_OVERLAPPEDWINDOW,
                               ADDR szClassName,
                               ADDR szDisplayName,
-                              WS_OVERLAPPEDWINDOW,
+                              WS_SYSMENU,
                               Wtx,Wty,Wwd,Wht,
                               NULL,NULL,
                               hInst,NULL
@@ -278,28 +299,55 @@ LOCAL        rect   :RECT
     ; passed to the WndProc [ hWin ] must be used here for any controls
     ; or child windows.
     ; --------------------------------------------------------------------
-
     
-    invoke Random BOARD_WIDTH
-    mov fruit.x, eax
+        invoke Random, BOARD_WIDTH
+        mov fruitX, eax
 
-    invoke Random BOARD_HEIGHT
-    mov fruit.y, eax
+        invoke Random, BOARD_HEIGHT
+        mov fruitY, eax
 
-    mov position.x, 200
-    mov position.y, 150
-    mov x, 100
+        invoke Random, BOARD_WIDTH
+        mov snakeX[0], eax
 
-    ; randomiza a fruta
-    invoke Random BOARD_COUNT
-    mov fruit, eax
+        invoke Random, BOARD_HEIGHT
+        mov snakeY[0], eax
 
-    invoke CreateEvent, NULL, FALSE, FALSE, NULL
-    mov    hEventStart, eax
+        mov ecx, snakeX[0]
+        mov edx, snakeY[0]
 
-    invoke LoadBitmap, hInstance, IDB_MAIN
-    mov    hBitmap, eax
+        .while fruitX == ecx
+            .while fruitY == edx
+                invoke Random, BOARD_HEIGHT
+                mov fruitY, eax
+                mov edx, snakeY[0]
+            .endw
+            
+            invoke Random, BOARD_WIDTH
+            mov fruitX, eax
+            mov ecx, snakeX[0]
+        .endw
 
+        invoke Random, 4
+        mov direction, eax
+
+        ; mov position.x, 200
+        ; mov position.y, 150
+        ; mov x, 100
+
+        invoke CreateEvent, NULL, FALSE, FALSE, NULL
+        mov    hEventStart, eax
+
+        invoke LoadBitmap, hInstance, BMP_BG
+        mov    hBmpBg, eax
+        
+        invoke LoadBitmap, hInstance, BMP_SNAKE
+        mov    hBmpSnake, eax
+        
+        invoke LoadBitmap, hInstance, BMP_FRUIT
+        mov    hBmpFruit, eax
+
+        mov    eax, OFFSET ThreadProc
+		invoke CreateThread, NULL, NULL, eax, NULL, NORMAL_PRIORITY_CLASS, ADDR ThreadID
     .elseif uMsg == WM_DESTROY
     ; ----------------------------------------------------------------
     ; This message MUST be processed to cleanly exit the application.
@@ -308,74 +356,93 @@ LOCAL        rect   :RECT
     ; application correctly. If this message is not processed properly
     ; the window disappears but the code is left in memory.
     ; ----------------------------------------------------------------
-        invoke DeleteObject, hBitmap
+        invoke DeleteObject, hBmpBg
+        invoke DeleteObject, hBmpFruit
+        invoke DeleteObject, hBmpSnake
 
         invoke PostQuitMessage,NULL
         return 0 
 
     .elseif uMsg == WM_KEYDOWN
-        .if wParam == VK_RIGHT
-            add   x, 3
-        .endif
-        .if x > 200
-            mov x, 200
+        .if wParam == VK_UP
+            mov direction, 0
+        .elseif wParam == VK_RIGHT
+            mov direction, 1
+        .elseif wParam == VK_DOWN
+            mov direction, 2
+        .elseif wParam == VK_LEFT
+            mov direction, 3
+        .elseif wParam == 87
+            mov direction, 0
+        .elseif wParam == 68
+            mov direction, 1
+        .elseif wParam == 83
+            mov direction, 2
+        .elseif wParam == 65
+            mov direction, 3
         .endif
 
     .elseif uMsg == WM_KEYUP
-        .if wParam == VK_RIGHT
-          invoke  InvalidateRect, hWnd, NULL, TRUE
-        .endif
+        ; .if wParam == VK_RIGHT
+        ;   invoke  InvalidateRect, hWnd, NULL, TRUE
+        ; .endif
 
     .elseif uMsg == WM_FINISH
-        .if sprite == 0
-            mov x, 100
-            mov y, 0
-        .elseif sprite == 1
-            mov x, 120
-            mov y, 30
-        .elseif sprite == 2
-            mov x, 150
-            mov y, 30
-        .elseif sprite == 3
-            mov x, 150
-            mov y, 60
-        .endif
-    
-    invoke  InvalidateRect, hWnd, NULL, TRUE
+        invoke  InvalidateRect, hWnd, NULL, TRUE
 
     .elseif uMsg == WM_PAINT
         invoke BeginPaint, hWin, ADDR Ps
         mov    hDC, eax
         
         invoke CreateCompatibleDC, hDC
-        mov    hBgDC, eax
+        mov    hCompatibleDC, eax
 
 
-        ; desenha o background na teoria
-        invoke SelectObject, hBgDC, hBmpBg
-        mov ebx, 0
-        .while ebx < BOARD_HEIGHT
-            mov ecx, 0
-            .while ecx < BOARD_WIDTH
-                invoke BitBlt, hDC, ecx * TILE_SIZE, ebx * TILE_SIZE, TILE_SIZE, TILE_SIZE, hBgDC, 0, 0, SRCCOPY
-                inc ecx
+        ; desenha o background
+        invoke SelectObject, hCompatibleDC, hBmpBg
+        mov i, 0
+        .while i < BOARD_HEIGHT
+            mov j, 0
+            .while j < BOARD_WIDTH
+                mov  ebx, i
+                imul ebx, TILE_SIZE
+                mov  ecx, j
+                imul ecx, TILE_SIZE
+
+                invoke BitBlt, hDC, ebx, ecx, TILE_SIZE, TILE_SIZE, hCompatibleDC, 0, 0, SRCCOPY
+                
+                add j, 1
             .endw
-            inc ebx
+            add i, 1
         .endw
 
-        ; desenha a fruta na teoria
-        invoke SelectObject, hBgDC, hBmpFruit
-        invoke BitBlt, hDC, fruit.x * TILE_SIZE, fruit.y * TILE_SIZE, TILE_SIZE, TILE_SIZE, hBgDC, 0, 0, SRCCOPY
+        ; desenha a fruta
+        invoke SelectObject, hCompatibleDC, hBmpFruit
 
-        ; desenha a cobra na teoria
-        invoke SelectObject, hBgDC, hBmpSnake
-        mov ebx, 0
-        .while snake[ebx] != -1
-            invoke BitBlt, hDC, snake[ebx].x * TILE_SIZE, snake[ebx].y * TILE_SIZE, TILE_SIZE, TILE_SIZE, hBgDC, 0, 0, SRCCOPY
-            inc ebx
-        .endw
+        mov  ebx, fruitX
+        imul ebx, TILE_SIZE
+        mov  ecx, fruitY
+        imul ecx, TILE_SIZE
+        invoke BitBlt, hDC, ebx, ecx, TILE_SIZE, TILE_SIZE, hCompatibleDC, 0, 0, SRCCOPY
 
-        invoke DeleteDC, hBgDC
+        ; desenha a cobra
+        invoke SelectObject, hCompatibleDC, hBmpSnake
+        mov esi, 0
+        forI:
+            mov  ebx, snakeX[4 * esi]
+            imul ebx, TILE_SIZE
+            mov  ecx, snakeY[4 * esi]
+            imul ecx, TILE_SIZE
+
+            cmp ebx, -1
+            je endForI
+
+            invoke BitBlt, hDC, ebx, ecx, TILE_SIZE, TILE_SIZE, hCompatibleDC, 0, 0, SRCCOPY
+            
+            inc esi
+        endForI:
+
+        invoke DeleteDC, hCompatibleDC
 
         invoke EndPaint, hWin, ADDR Ps
         return 0
@@ -416,44 +483,40 @@ TopXY endp
 ; ########################################################################
 
 ThreadProc PROC USES ecx Param:DWORD
-    invoke WaitForSingleObject, hEventStart, 500 ; 500 eh o tempo
+    invoke WaitForSingleObject, hEventStart, 100 ; 500 eh o tempo
     .if eax == WAIT_TIMEOUT
-        inc   sprite
-        .if sprite == 4
-            mov   sprite, 0
+        .if direction == 0
+            dec snakeY[0]
+        .elseif direction == 1
+            inc snakeX[0]
+        .elseif direction == 2
+            inc snakeY[0]
+        .elseif direction == 3
+            dec snakeX[0]
         .endif
+        
         invoke  SendMessage, hWnd, WM_FINISH, NULL, NULL
     .endif
+
+    
     jmp   ThreadProc
     ret
 ThreadProc endp
 
-Random proc Range:DWORD   
-    LOCAL TempInt:DWORD
-    LOCAL RMax:DWORD
+; ########################################################################
 
-    mov eax, TRAND_MAX;
-    mov RMax, eax;
-      
-    mov  eax, seed;
-    imul eax, eax,343FDh;
-    add  eax, 269EC3h;
-    mov  seed,eax;
-    sar  eax,10h;
-    and  eax,7FFFh;
-
-    mov TempInt, eax;
-
-    fild TempInt;
-    fild RMax;
-    fdivp st(1), st(0);
-    fild Range;
-    fmulp st(1), st(0);
-    fistp TempInt; 
- 
-    mov eax, TempInt;
+Random proc range:DWORD   
+    rdtsc
+    adc eax, edx
+    adc eax, prng_x
+    mul prng_a
+    adc eax, edx
+    mov prng_x, eax
+    mul range
+    mov eax, edx
     ret
-    
 Random endp
+
+; ########################################################################
 
 end start
