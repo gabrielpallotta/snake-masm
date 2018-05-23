@@ -17,14 +17,14 @@ C:\masm32\bin\Link /SUBSYSTEM:WINDOWS /OPT:NOREF %1.obj rsrc.obj
 if errorlevel 1 goto errlink
 
 dir %1.*
-generic.exe
+%1.exe
 goto TheEnd
 
 :nores
 C:\masm32\bin\Link /SUBSYSTEM:WINDOWS /OPT:NOREF %1.obj
 if errorlevel 1 goto errlink
 dir %1.*
-generic.exe
+%1.exe
 goto TheEnd
 
 :errlink
