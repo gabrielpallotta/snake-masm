@@ -38,5 +38,5 @@ echo Assembly Error
 goto TheEnd
 
 :TheEnd
-
+cd ..
 pause

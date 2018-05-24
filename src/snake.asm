@@ -5,27 +5,15 @@
 ;
 ; #########################################################################
 
-;           Assembler specific instructions for 32 bit ASM code
-
-    ; EU MUDEI ISSO ANTES TAVA .386 E AGORA FICOU .586 PRA PODER GERAR NUMEROS ALEATORIOS!!!
-    ; ATENÇÃO!
-      .586                   ; minimum processor needed for 32 bit
-      .model flat, stdcall   ; FLAT memory model & STDCALL calling
-      option casemap :none   ; set code to case sensitive
+    ; EU MUDEI ISSO ANTES TAVA .386 E AGORA FICOU .586 PRA PODER GERAR NUMEROS ALEATORIOS
+    ; SE COMEÇAR A DAR RUIM VOLTAR PARA .386
+      .586
+      .model flat, stdcall
+      option casemap :none
 
 ; #########################################################################
 
-      ; ---------------------------------------------
-      ; main include file with equates and structures
-      ; ---------------------------------------------
       include C:\masm32\include\windows.inc
-
-      ; -------------------------------------------------------------
-      ; In MASM32, each include file created by the L2INC.EXE utility
-      ; has a matching library file. If you need functions from a
-      ; specific library, you use BOTH the include file and library
-      ; file for that library.
-      ; -------------------------------------------------------------
 
       include C:\masm32\include\user32.inc
       include C:\masm32\include\kernel32.inc
@@ -38,16 +26,6 @@
 
 ; #########################################################################
 
-; ------------------------------------------------------------------------
-; MACROS are a method of expanding text at assembly time. This allows the
-; programmer a tidy and convenient way of using COMMON blocks of code with
-; the capacity to use DIFFERENT parameters in each block.
-; ------------------------------------------------------------------------
-
-      ; 1. szText
-      ; A macro to insert TEXT into the code section for convenient and 
-      ; more intuitive coding of functions that use byte data as text.
-
       szText MACRO Name, Text:VARARG
         LOCAL lbl
           jmp lbl
@@ -55,23 +33,10 @@
           lbl:
         ENDM
 
-      ; 2. m2m
-      ; There is no mnemonic to copy from one memory location to another,
-      ; this macro saves repeated coding of this process and is easier to
-      ; read in complex code.
-
       m2m MACRO M1, M2
         push M2
         pop  M1
       ENDM
-
-      ; 3. return
-      ; Every procedure MUST have a "ret" to return the instruction
-      ; pointer EIP back to the next instruction after the call that
-      ; branched to it. This macro puts a return value in eax and
-      ; makes the "ret" instruction on one line. It is mainly used
-      ; for clear coding in complex conditionals in large branching
-      ; code such as the WndProc procedure.
 
       return MACRO arg
         mov eax, arg
@@ -80,260 +45,181 @@
 
 ; #########################################################################
 
-; ----------------------------------------------------------------------
-; Prototypes are used in conjunction with the MASM "invoke" syntax for
-; checking the number and size of parameters passed to a procedure. This
-; improves the reliability of code that is written where errors in
-; parameters are caught and displayed at assembly time.
-; ----------------------------------------------------------------------
-
         WinMain PROTO :DWORD,:DWORD,:DWORD,:DWORD
         WndProc PROTO :DWORD,:DWORD,:DWORD,:DWORD
         TopXY  PROTO  :DWORD,:DWORD
         Random PROTO  :DWORD
+        RandomizarFruta PROTO
 
-; declaração de constantes
-.const
-        BMP_BG  equ 100 
-        BMP_SNAKE  equ 101 
-        BMP_FRUIT  equ 102 
-
-        WM_FINISH equ WM_USER+100h
-        BOARD_HEIGHT equ 15
-        BOARD_WIDTH equ 15
-        BOARD_COUNT equ BOARD_HEIGHT * BOARD_WIDTH
-        TILE_SIZE equ 32
-        
 ; #########################################################################
+    
+    .const
+        WM_FINISH     equ WM_USER+100h
+        
+        ; Códigos dos bitmaps do jogo
+        BMP_BG        equ 100 
+        BMP_SNAKE     equ 101 
+        BMP_FRUIT     equ 102 
 
-; ------------------------------------------------------------------------
-; This is the INITIALISED data section meaning that data declared here has
-; an initial value. You can also use an UNINIALISED section if you need
-; data of that type [ .data? ]. Note that they are different and occur in
-; different sections.
-; ------------------------------------------------------------------------
+        ; Tamanho da área de jogo
+        BOARD_HEIGHT  equ 25
+        BOARD_WIDTH   equ 25
+        BOARD_COUNT   equ BOARD_HEIGHT * BOARD_WIDTH
+
+        ; Tamanho do tile
+        TILE_SIZE     equ 20
 
     .data
+        ; Variáveis de configuração
         szDisplayName db "Snake",0
         CommandLine   dd 0
         hWnd          dd 0
         hInstance     dd 0
 
-        ; variaveis para while
-        i             dd 0
-        j             dd 0
-
-        ; variaveis para numeros aleatorios
+        ; Variáveis para números aleatórios
         prng_x        dd 0
         prng_a        dd 100711433
 
+        ; Coordenadas da cobra
         snakeX        dd BOARD_COUNT dup(-1)
         snakeY        dd BOARD_COUNT dup(-1)
 
+        livres        dd BOARD_COUNT dup(-1)
 
     .data?
-        ; coordenadas 
+        ; Coordenadas da fruta
         fruitX        dd ?  
         fruitY        dd ?  
 
+        ; Direção e tamanho da cobra
         direction     dd ?
+        snakeSize     dd ?
         
-        ; handle dos bitmaps
+        ; Handle dos bitmaps
         hBmpSnake     dd ?
         hBmpBg        dd ?
         hBmpFruit     dd ?
 
-        ; handle compativel
+        ; Handle compativel para desenhar na tela
         hCompatibleDC dd ?
  
-        ; threads
+        ; Threads
         ThreadID      DWORD  ?
         hEventStart   HANDLE ?
+
         
 
 ; #########################################################################
 
-; ------------------------------------------------------------------------
-; This is the start of the code section where executable code begins. This
-; section ending with the ExitProcess() API function call is the only
-; GLOBAL section of code and it provides access to the WinMain function
-; with the necessary parameters, the instance handle and the command line
-; address.
-; ------------------------------------------------------------------------
-
 .code
 
-; -----------------------------------------------------------------------
-; The label "start:" is the address of the start of the code section and
-; it has a matching "end start" at the end of the file. All procedures in
-; this module must be written between these two.
-; -----------------------------------------------------------------------
+    start:
+        invoke GetModuleHandle, NULL
+        mov hInstance, eax
 
-start:
-    invoke GetModuleHandle, NULL ; provides the instance handle
-    mov hInstance, eax
+        invoke GetCommandLine
+        mov CommandLine, eax
 
-    invoke GetCommandLine        ; provides the command line address
-    mov CommandLine, eax
-
-    invoke WinMain,hInstance,NULL,CommandLine,SW_SHOWDEFAULT
-    
-    invoke ExitProcess,eax       ; cleanup & return to operating system
+        invoke WinMain, hInstance, NULL, CommandLine, SW_SHOWDEFAULT
+        
+        invoke ExitProcess, eax
 
 ; #########################################################################
 
-WinMain proc hInst     :DWORD,
-             hPrevInst :DWORD,
-             CmdLine   :DWORD,
-             CmdShow   :DWORD
+WinMain proc hInst:DWORD, hPrevInst:DWORD, CmdLine:DWORD, CmdShow:DWORD
 
-        ;====================
-        ; Put LOCALs on stack
-        ;====================
+    LOCAL wc:WNDCLASSEX
+    LOCAL msg:MSG
 
-        LOCAL wc   :WNDCLASSEX
-        LOCAL msg  :MSG
+    LOCAL Wwd:DWORD
+    LOCAL Wht:DWORD
+    LOCAL Wtx:DWORD
+    LOCAL Wty:DWORD
 
-        LOCAL Wwd  :DWORD
-        LOCAL Wht  :DWORD
-        LOCAL Wtx  :DWORD
-        LOCAL Wty  :DWORD
+    szText szClassName, "Generic_Class"
 
-        szText szClassName,"Generic_Class"
+    mov wc.cbSize, sizeof WNDCLASSEX
+    mov wc.style, CS_HREDRAW or CS_VREDRAW or CS_BYTEALIGNWINDOW
+    mov wc.lpfnWndProc, offset WndProc
+    mov wc.cbClsExtra, NULL
+    mov wc.cbWndExtra, NULL
+    m2m wc.hInstance, hInst
+    mov wc.hbrBackground, COLOR_BTNFACE+1 
+    mov wc.lpszMenuName, NULL
+    mov wc.lpszClassName, offset szClassName
+    invoke LoadIcon, hInst, 500
+    mov wc.hIcon, eax
+    invoke LoadCursor, NULL, IDC_ARROW
+    mov wc.hCursor, eax
+    mov wc.hIconSm, 0
 
-        ;==================================================
-        ; Fill WNDCLASSEX structure with required variables
-        ;==================================================
+    invoke RegisterClassEx, ADDR wc
 
-        mov wc.cbSize,         sizeof WNDCLASSEX
-        mov wc.style,          CS_HREDRAW or CS_VREDRAW \
-                               or CS_BYTEALIGNWINDOW
-        mov wc.lpfnWndProc,    offset WndProc      ; address of WndProc
-        mov wc.cbClsExtra,     NULL
-        mov wc.cbWndExtra,     NULL
-        m2m wc.hInstance,      hInst               ; instance handle
-        mov wc.hbrBackground,  COLOR_BTNFACE+1     ; system color
-        mov wc.lpszMenuName,   NULL
-        mov wc.lpszClassName,  offset szClassName  ; window class name
-        invoke LoadIcon, hInst, 500    ; icon ID   ; resource icon
-        mov wc.hIcon,          eax
-        invoke LoadCursor, NULL, IDC_ARROW         ; system cursor
-        mov wc.hCursor,        eax
-        mov wc.hIconSm,        0
+    ; Ajusta o tamanho da janela
+    mov Wwd, TILE_SIZE * BOARD_WIDTH + 10
+    mov Wht, TILE_SIZE * BOARD_HEIGHT + 32
 
-        invoke RegisterClassEx, ADDR wc     ; register the window class
+    ; Largura da tela em pixels
+    invoke GetSystemMetrics, SM_CXSCREEN
+    invoke TopXY, Wwd, eax
+    mov Wtx, eax
 
-        ;================================
-        ; Centre window at following size
-        ;================================
+    ; Altura da tela em pixels
+    invoke GetSystemMetrics, SM_CYSCREEN
+    invoke TopXY, Wht, eax
+    mov Wty, eax
 
-        mov Wwd, TILE_SIZE * BOARD_WIDTH + 10
-        mov Wht, TILE_SIZE * BOARD_HEIGHT + 32
+    ; Cria a janela
+    invoke CreateWindowEx, WS_EX_OVERLAPPEDWINDOW,
+                            ADDR szClassName,
+                            ADDR szDisplayName,
+                            WS_SYSMENU,
+                            Wtx, Wty, Wwd, Wht,
+                            NULL, NULL,
+                            hInst, NULL
+                            
+    mov hWnd, eax
 
-        invoke GetSystemMetrics,SM_CXSCREEN ; get screen width in pixels
-        invoke TopXY,Wwd,eax
-        mov Wtx, eax
+    invoke ShowWindow, hWnd, SW_SHOWNORMAL
+    invoke UpdateWindow, hWnd
 
-        invoke GetSystemMetrics,SM_CYSCREEN ; get screen height in pixels
-        invoke TopXY,Wht,eax
-        mov Wty, eax
+    StartLoop:
+        invoke GetMessage, ADDR msg, NULL, 0, 0
+        cmp eax, 0
+        je ExitLoop
+        invoke TranslateMessage, ADDR msg
+        invoke DispatchMessage, ADDR msg
+        jmp StartLoop
+    ExitLoop:
 
-        ; ==================================
-        ; Create the main application window
-        ; ==================================
-        invoke CreateWindowEx,WS_EX_OVERLAPPEDWINDOW,
-                              ADDR szClassName,
-                              ADDR szDisplayName,
-                              WS_SYSMENU,
-                              Wtx,Wty,Wwd,Wht,
-                              NULL,NULL,
-                              hInst,NULL
-
-        mov   hWnd,eax  ; copy return value into handle DWORD
-
-        invoke ShowWindow,hWnd,SW_SHOWNORMAL      ; display the window
-        invoke UpdateWindow,hWnd                  ; update the display
-
-      ;===================================
-      ; Loop until PostQuitMessage is sent
-      ;===================================
-
-        StartLoop:
-            invoke GetMessage,ADDR msg,NULL,0,0         ; get each message
-            cmp eax, 0                                  ; exit if GetMessage()
-            je ExitLoop                                 ; returns zero
-            invoke TranslateMessage, ADDR msg           ; translate it
-            invoke DispatchMessage,  ADDR msg           ; send it to message proc
-            jmp StartLoop
-        ExitLoop:
-
-      return msg.wParam
+    return msg.wParam
 
 WinMain endp
 
 ; #########################################################################
 
-WndProc proc hWin   :DWORD,
-             uMsg   :DWORD,
-             wParam :DWORD,
-             lParam :DWORD
+WndProc proc hWin:DWORD, uMsg:DWORD, wParam:DWORD, lParam:DWORD
 
-LOCAL        hDC    :DWORD
-LOCAL        Ps     :PAINTSTRUCT
-LOCAL        hMenDC :HDC
-LOCAL        rect   :RECT
-
-; -------------------------------------------------------------------------
-; Message are sent by the operating system to an application through the
-; WndProc proc. Each message can have additional values associated with it
-; in the two parameters, wParam & lParam. The range of additional data that
-; can be passed to an application is determined by the message.
-; -------------------------------------------------------------------------
+LOCAL hDC:DWORD
+LOCAL Ps:PAINTSTRUCT
+LOCAL i:DWORD
+LOCAL j:DWORD
 
     .if uMsg == WM_CREATE
-    ; --------------------------------------------------------------------
-    ; This message is sent to WndProc during the CreateWindowEx function
-    ; call and is processed before it returns. This is used as a position
-    ; to start other items such as controls. IMPORTANT, the handle for the
-    ; CreateWindowEx call in the WinMain does not yet exist so the HANDLE
-    ; passed to the WndProc [ hWin ] must be used here for any controls
-    ; or child windows.
-    ; --------------------------------------------------------------------
-    
-        invoke Random, BOARD_WIDTH
-        mov fruitX, eax
-
-        invoke Random, BOARD_HEIGHT
-        mov fruitY, eax
-
         invoke Random, BOARD_WIDTH
         mov snakeX[0], eax
 
         invoke Random, BOARD_HEIGHT
         mov snakeY[0], eax
 
-        mov ecx, snakeX[0]
-        mov edx, snakeY[0]
+        mov snakeSize, 1
 
-        .while fruitX == ecx
-            .while fruitY == edx
-                invoke Random, BOARD_HEIGHT
-                mov fruitY, eax
-                mov edx, snakeY[0]
-            .endw
-            
-            invoke Random, BOARD_WIDTH
-            mov fruitX, eax
-            mov ecx, snakeX[0]
-        .endw
+        invoke RandomizarFruta
 
         invoke Random, 4
         mov direction, eax
 
-        ; mov position.x, 200
-        ; mov position.y, 150
-        ; mov x, 100
-
+        
         invoke CreateEvent, NULL, FALSE, FALSE, NULL
         mov    hEventStart, eax
 
@@ -348,14 +234,9 @@ LOCAL        rect   :RECT
 
         mov    eax, OFFSET ThreadProc
 		invoke CreateThread, NULL, NULL, eax, NULL, NORMAL_PRIORITY_CLASS, ADDR ThreadID
+
     .elseif uMsg == WM_DESTROY
-    ; ----------------------------------------------------------------
-    ; This message MUST be processed to cleanly exit the application.
-    ; Calling the PostQuitMessage() function makes the GetMessage()
-    ; function in the WinMain() main loop return ZERO which exits the
-    ; application correctly. If this message is not processed properly
-    ; the window disappears but the code is left in memory.
-    ; ----------------------------------------------------------------
+
         invoke DeleteObject, hBmpBg
         invoke DeleteObject, hBmpFruit
         invoke DeleteObject, hBmpSnake
@@ -383,14 +264,17 @@ LOCAL        rect   :RECT
         .endif
 
     .elseif uMsg == WM_KEYUP
+
         ; .if wParam == VK_RIGHT
         ;   invoke  InvalidateRect, hWnd, NULL, TRUE
         ; .endif
 
     .elseif uMsg == WM_FINISH
+
         invoke  InvalidateRect, hWnd, NULL, TRUE
 
     .elseif uMsg == WM_PAINT
+
         invoke BeginPaint, hWin, ADDR Ps
         mov    hDC, eax
         
@@ -398,48 +282,54 @@ LOCAL        rect   :RECT
         mov    hCompatibleDC, eax
 
 
-        ; desenha o background
+        ; Desenha o background
         invoke SelectObject, hCompatibleDC, hBmpBg
-        mov i, 0
-        .while i < BOARD_HEIGHT
-            mov j, 0
-            .while j < BOARD_WIDTH
-                mov  ebx, i
+        ; mov i, 0
+        ; .while i < BOARD_HEIGHT
+        ;     mov j, 0
+        ;     .while j < BOARD_WIDTH
+        ;         mov  ebx, i
+        ;         imul ebx, TILE_SIZE
+        ;         mov  ecx, j
+        ;         imul ecx, TILE_SIZE
+                mov ebx, BOARD_WIDTH
                 imul ebx, TILE_SIZE
-                mov  ecx, j
+                mov ecx, BOARD_HEIGHT
                 imul ecx, TILE_SIZE
-
                 invoke BitBlt, hDC, ebx, ecx, TILE_SIZE, TILE_SIZE, hCompatibleDC, 0, 0, SRCCOPY
                 
-                add j, 1
-            .endw
-            add i, 1
-        .endw
+        ;         add j, 1
+        ;     .endw
+        ;     add i, 1
+        ; .endw
 
-        ; desenha a fruta
+        ; Desenha a fruta
         invoke SelectObject, hCompatibleDC, hBmpFruit
-
         mov  ebx, fruitX
         imul ebx, TILE_SIZE
         mov  ecx, fruitY
         imul ecx, TILE_SIZE
         invoke BitBlt, hDC, ebx, ecx, TILE_SIZE, TILE_SIZE, hCompatibleDC, 0, 0, SRCCOPY
 
-        ; desenha a cobra
+        ; Desenha a cobra
         invoke SelectObject, hCompatibleDC, hBmpSnake
-        mov esi, 0
+        mov edi, 0
         forI:
-            mov  ebx, snakeX[4 * esi]
-            imul ebx, TILE_SIZE
-            mov  ecx, snakeY[4 * esi]
-            imul ecx, TILE_SIZE
+            mov ebx, snakeX[4 * edi]
 
             cmp ebx, -1
             je endForI
 
+            mov ebx, snakeX[4 * edi]
+            imul ebx, TILE_SIZE
+
+            mov  ecx, snakeY[4 * edi]
+            imul ecx, TILE_SIZE
+
             invoke BitBlt, hDC, ebx, ecx, TILE_SIZE, TILE_SIZE, hCompatibleDC, 0, 0, SRCCOPY
             
-            inc esi
+            inc edi
+            jmp forI
         endForI:
 
         invoke DeleteDC, hCompatibleDC
@@ -449,14 +339,6 @@ LOCAL        rect   :RECT
     .endif
 
     invoke DefWindowProc,hWin,uMsg,wParam,lParam
-    ; --------------------------------------------------------------------
-    ; Default window processing is done by the operating system for any
-    ; message that is not processed by the application in the WndProc
-    ; procedure. If the application requires other than default processing
-    ; it executes the code when the message is trapped and returns ZERO
-    ; to exit the WndProc procedure before the default window processing
-    ; occurs with the call to DefWindowProc().
-    ; --------------------------------------------------------------------
 
     ret
 
@@ -465,16 +347,10 @@ WndProc endp
 ; ########################################################################
 
 TopXY proc wDim:DWORD, sDim:DWORD
-
-    ; ----------------------------------------------------
-    ; This procedure calculates the top X & Y co-ordinates
-    ; for the CreateWindowEx call in the WinMain procedure
-    ; ----------------------------------------------------
-
-    shr sDim, 1      ; divide screen dimension by 2
-    shr wDim, 1      ; divide window dimension by 2
-    mov eax, wDim    ; copy window dimension into eax
-    sub sDim, eax    ; sub half win dimension from half screen dimension
+    shr sDim, 1
+    shr wDim, 1
+    mov eax, wDim
+    sub sDim, eax
 
     return sDim
 
@@ -482,9 +358,34 @@ TopXY endp
 
 ; ########################################################################
 
+; Thread para tick do jogo
 ThreadProc PROC USES ecx Param:DWORD
-    invoke WaitForSingleObject, hEventStart, 100 ; 500 eh o tempo
+LOCAL i:DWORD
+
+    invoke WaitForSingleObject, hEventStart, 100
     .if eax == WAIT_TIMEOUT
+
+        mov esi, snakeSize
+        dec esi
+        
+        ; Passa os tiles da cobra pra frente
+        loopSnake:
+            mov ebx, snakeX[4 * esi]
+            mov snakeX[4 * esi + 4], ebx
+
+            mov ebx, snakeY[4 * esi]
+            mov snakeY[4 * esi + 4], ebx
+
+            
+            .if esi == 0
+                jmp saindodaqui
+            .endif
+
+            dec esi
+            jmp loopSnake
+        saindodaqui:
+
+        ; Altera o valor da cabeça da cobra de acordo com a direção
         .if direction == 0
             dec snakeY[0]
         .elseif direction == 1
@@ -494,10 +395,22 @@ ThreadProc PROC USES ecx Param:DWORD
         .elseif direction == 3
             dec snakeX[0]
         .endif
-        
+
+        ; Verifica se a cobra comeu a fruta
+        mov eax, fruitX
+        mov ebx, fruitY
+        .if eax == snakeX && ebx == snakeY
+            invoke RandomizarFruta
+            inc snakeSize
+        .endif
+
+        ; Deleta o último quadrado (só se a cobra não tiver comido a fruta)
+        mov ebx, snakeSize
+        mov snakeX[4 * ebx], -1
+        mov snakeY[4 * ebx], -1
+
         invoke  SendMessage, hWnd, WM_FINISH, NULL, NULL
     .endif
-
     
     jmp   ThreadProc
     ret
@@ -505,6 +418,57 @@ ThreadProc endp
 
 ; ########################################################################
 
+RandomizarFruta proc
+LOCAL ultimo:DWORD
+
+    mov esi, 0
+    mov ultimo, 0
+    
+    .while esi < BOARD_COUNT
+        mov edi, 0
+
+        .while edi < snakeSize
+            ; Transforma X e Y em um número só
+            mov eax, snakeY[4 * edi]
+            imul eax, BOARD_WIDTH
+            add eax, snakeX[4 * edi]
+
+            ; Se o tile i está ocupado por uma cobra
+            .if esi == eax
+                jmp temCobra
+            .endif
+
+            inc edi
+        .endw
+
+        mov edx, esi
+        mov ecx, ultimo
+        mov livres[4 * ecx], edx
+        inc ultimo
+
+    temCobra:
+        inc esi
+
+    .endw
+
+    dec ultimo
+    invoke Random, ultimo
+
+    mov eax, livres[4 * eax]
+    mov ebx, BOARD_WIDTH
+    mov edx, 0
+    div ebx
+
+    mov fruitX, edx
+    mov fruitY, eax
+
+    ret
+
+RandomizarFruta endp
+
+; ########################################################################
+
+; Procedure para números aleatórios
 Random proc range:DWORD   
     rdtsc
     adc eax, edx
