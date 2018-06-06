@@ -13,16 +13,18 @@
 
 ; #########################################################################
 
-      include C:\masm32\include\windows.inc
+    include C:\masm32\include\windows.inc
 
-      include C:\masm32\include\user32.inc
-      include C:\masm32\include\kernel32.inc
-      include C:\masm32\include\gdi32.inc
+    include C:\masm32\include\user32.inc
+    include C:\masm32\include\kernel32.inc
+    include C:\masm32\include\gdi32.inc
 
-      includelib C:\masm32\lib\user32.lib
-      includelib C:\masm32\lib\kernel32.lib
-      includelib C:\masm32\lib\gdi32.lib
-      includelib C:\masm32\lib\
+    include C:\masm32\include\masm32rt.inc
+
+    includelib C:\masm32\lib\user32.lib
+    includelib C:\masm32\lib\kernel32.lib
+    includelib C:\masm32\lib\gdi32.lib
+    ; includelib C:\masm32\lib\
 
 ; #########################################################################
 
@@ -45,14 +47,22 @@
 
 ; #########################################################################
 
-        WinMain PROTO :DWORD,:DWORD,:DWORD,:DWORD
-        WndProc PROTO :DWORD,:DWORD,:DWORD,:DWORD
-        TopXY  PROTO  :DWORD,:DWORD
-        Random PROTO  :DWORD
-        RandomizarFruta PROTO
+    WinMain PROTO :DWORD,:DWORD,:DWORD,:DWORD
+    WndProc PROTO :DWORD,:DWORD,:DWORD,:DWORD
+    TopXY  PROTO  :DWORD,:DWORD
+    Random PROTO  :DWORD
+    Reiniciar PROTO
+    RandomizarFruta PROTO
 
 ; #########################################################################
     
+    ; RECT STRUCT
+    ;     left    DWORD  ?
+    ;     top     DWORD  ?
+    ;     right   DWORD  ?
+    ;     bottom  DWORD  ?
+    ; RECT ENDS
+
     .const
         WM_FINISH     equ WM_USER+100h
         
@@ -61,9 +71,9 @@
         BMP_SNAKE     equ 101 
         BMP_FRUIT     equ 102 
 
+        BOARD_HEIGHT  equ 10
+        BOARD_WIDTH   equ 10
         ; Tamanho da área de jogo
-        BOARD_HEIGHT  equ 25
-        BOARD_WIDTH   equ 25
         BOARD_COUNT   equ BOARD_HEIGHT * BOARD_WIDTH
 
         ; Tamanho do tile
@@ -71,7 +81,7 @@
 
     .data
         ; Variáveis de configuração
-        szDisplayName db "Snake",0
+        szDisplayName db "Snake", 0
         CommandLine   dd 0
         hWnd          dd 0
         hInstance     dd 0
@@ -80,16 +90,20 @@
         prng_x        dd 0
         prng_a        dd 100711433
 
-        ; Coordenadas da cobra
-        snakeX        dd BOARD_COUNT dup(-1)
-        snakeY        dd BOARD_COUNT dup(-1)
-
         livres        dd BOARD_COUNT dup(-1)
+
+
+        ; Cor do texto
+        textColor     dd 0F0F0F0h
 
     .data?
         ; Coordenadas da fruta
         fruitX        dd ?  
         fruitY        dd ?  
+
+        ; Coordenadas da cobra
+        snakeX        dd BOARD_COUNT dup(?)
+        snakeY        dd BOARD_COUNT dup(?)
 
         ; Direção e tamanho da cobra
         direction     dd ?
@@ -100,14 +114,18 @@
         hBmpBg        dd ?
         hBmpFruit     dd ?
 
-        ; Handle compativel para desenhar na tela
+        ; Texto
+        text          dw 10 dup(?)
+        textRect      RECT <>
+
+
+        ; Handle compativel para desen har na tela
         hCompatibleDC dd ?
  
         ; Threads
-        ThreadID      DWORD  ?
-        hEventStart   HANDLE ?
-
-        
+        ThreadID      DWORD   ?
+        hEventStart   HANDLE  ?
+        dwExitCode    LPDWORD ?        
 
 ; #########################################################################
 
@@ -127,7 +145,6 @@
 ; #########################################################################
 
 WinMain proc hInst:DWORD, hPrevInst:DWORD, CmdLine:DWORD, CmdShow:DWORD
-
     LOCAL wc:WNDCLASSEX
     LOCAL msg:MSG
 
@@ -205,24 +222,9 @@ LOCAL Ps:PAINTSTRUCT
 LOCAL i:DWORD
 LOCAL j:DWORD
 
-    .if uMsg == WM_CREATE
-        invoke Random, BOARD_WIDTH
-        mov snakeX[0], eax
+.if uMsg == WM_CREATE
 
-        invoke Random, BOARD_HEIGHT
-        mov snakeY[0], eax
-
-        mov snakeSize, 1
-
-        invoke RandomizarFruta
-
-        invoke Random, 4
-        mov direction, eax
-
-        
-        invoke CreateEvent, NULL, FALSE, FALSE, NULL
-        mov    hEventStart, eax
-
+        ; Carrega os bitmaps
         invoke LoadBitmap, hInstance, BMP_BG
         mov    hBmpBg, eax
         
@@ -232,8 +234,14 @@ LOCAL j:DWORD
         invoke LoadBitmap, hInstance, BMP_FRUIT
         mov    hBmpFruit, eax
 
+        ; Inicializa a thread
+        invoke CreateEvent, NULL, FALSE, FALSE, NULL
+        mov    hEventStart, eax
         mov    eax, OFFSET ThreadProc
-		invoke CreateThread, NULL, NULL, eax, NULL, NORMAL_PRIORITY_CLASS, ADDR ThreadID
+        invoke CreateThread, NULL, NULL, eax, NULL, NORMAL_PRIORITY_CLASS, ADDR ThreadID
+
+        ; Inicializa as variáveis do jogo
+        invoke Reiniciar
 
     .elseif uMsg == WM_DESTROY
 
@@ -245,63 +253,27 @@ LOCAL j:DWORD
         return 0 
 
     .elseif uMsg == WM_KEYDOWN
-        .if wParam == VK_UP
+        ; Evento das setas do teclado
+        .if wParam == VK_UP && (direction != 2 || snakeSize == 1)
             mov direction, 0
-        .elseif wParam == VK_RIGHT
+        .elseif wParam == VK_RIGHT && (direction != 3 || snakeSize == 1)
             mov direction, 1
-        .elseif wParam == VK_DOWN
+        .elseif wParam == VK_DOWN && (direction != 0 || snakeSize == 1)
             mov direction, 2
-        .elseif wParam == VK_LEFT
-            mov direction, 3
-        .elseif wParam == 87
-            mov direction, 0
-        .elseif wParam == 68
-            mov direction, 1
-        .elseif wParam == 83
-            mov direction, 2
-        .elseif wParam == 65
+        .elseif wParam == VK_LEFT && (direction != 1 || snakeSize == 1)
             mov direction, 3
         .endif
 
-    .elseif uMsg == WM_KEYUP
-
-        ; .if wParam == VK_RIGHT
-        ;   invoke  InvalidateRect, hWnd, NULL, TRUE
-        ; .endif
-
     .elseif uMsg == WM_FINISH
-
+        ; Renderiza a tela
         invoke  InvalidateRect, hWnd, NULL, TRUE
 
     .elseif uMsg == WM_PAINT
-
         invoke BeginPaint, hWin, ADDR Ps
         mov    hDC, eax
         
         invoke CreateCompatibleDC, hDC
         mov    hCompatibleDC, eax
-
-
-        ; Desenha o background
-        invoke SelectObject, hCompatibleDC, hBmpBg
-        ; mov i, 0
-        ; .while i < BOARD_HEIGHT
-        ;     mov j, 0
-        ;     .while j < BOARD_WIDTH
-        ;         mov  ebx, i
-        ;         imul ebx, TILE_SIZE
-        ;         mov  ecx, j
-        ;         imul ecx, TILE_SIZE
-                mov ebx, BOARD_WIDTH
-                imul ebx, TILE_SIZE
-                mov ecx, BOARD_HEIGHT
-                imul ecx, TILE_SIZE
-                invoke BitBlt, hDC, ebx, ecx, TILE_SIZE, TILE_SIZE, hCompatibleDC, 0, 0, SRCCOPY
-                
-        ;         add j, 1
-        ;     .endw
-        ;     add i, 1
-        ; .endw
 
         ; Desenha a fruta
         invoke SelectObject, hCompatibleDC, hBmpFruit
@@ -332,8 +304,25 @@ LOCAL j:DWORD
             jmp forI
         endForI:
 
-        invoke DeleteDC, hCompatibleDC
+        ; Ajusta a pontuação
+        mov eax, snakeSize
+        dec eax
+        imul eax, 10
 
+        ; Converte a pontuação para texto
+        invoke dwtoa, eax, ADDR text
+        
+        ; Ajusta o retângulo para desenhar o texto
+        mov textRect.left, 10
+        mov textRect.top, 10
+        mov textRect.right, 50
+        mov textRect.bottom, 30
+
+        ; Desenha o texto
+        invoke SetBkColor, hDC, textColor
+        invoke DrawText, hDC, ADDR text, -1, ADDR textRect, DT_SINGLELINE or DT_CENTER or DT_VCENTER 
+        
+        invoke DeleteDC, hCompatibleDC
         invoke EndPaint, hWin, ADDR Ps
         return 0
     .endif
@@ -353,7 +342,6 @@ TopXY proc wDim:DWORD, sDim:DWORD
     sub sDim, eax
 
     return sDim
-
 TopXY endp
 
 ; ########################################################################
@@ -361,7 +349,6 @@ TopXY endp
 ; Thread para tick do jogo
 ThreadProc PROC USES ecx Param:DWORD
 LOCAL i:DWORD
-
     invoke WaitForSingleObject, hEventStart, 100
     .if eax == WAIT_TIMEOUT
 
@@ -378,12 +365,12 @@ LOCAL i:DWORD
 
             
             .if esi == 0
-                jmp saindodaqui
+                jmp endLoopSnake
             .endif
 
             dec esi
             jmp loopSnake
-        saindodaqui:
+        endLoopSnake:
 
         ; Altera o valor da cabeça da cobra de acordo com a direção
         .if direction == 0
@@ -402,19 +389,69 @@ LOCAL i:DWORD
         .if eax == snakeX && ebx == snakeY
             invoke RandomizarFruta
             inc snakeSize
-        .endif
+        .endif 
 
         ; Deleta o último quadrado (só se a cobra não tiver comido a fruta)
         mov ebx, snakeSize
         mov snakeX[4 * ebx], -1
         mov snakeY[4 * ebx], -1
 
+        ; Reinicia se a cobra bateu na borda
+        .if snakeX[0] < 0 || snakeY[0] < 0 || snakeX[0] >= BOARD_WIDTH || snakeY[0] >= BOARD_HEIGHT
+            invoke Reiniciar
+        .endif
+
+        ; Reinicia se a cobra bateu nela mesmo
+        mov esi, 1
+        .while esi < snakeSize
+            mov eax, snakeX[4 * esi]
+            mov ebx, snakeY[4 * esi]
+            .if snakeX[0] == eax && snakeY[0] == ebx
+                invoke Reiniciar
+            .endif
+            inc esi
+        .endw
+
+        ; Renderiza a tela
         invoke  SendMessage, hWnd, WM_FINISH, NULL, NULL
+
     .endif
     
     jmp   ThreadProc
     ret
 ThreadProc endp
+
+; ########################################################################
+
+Reiniciar proc
+
+    ; Reseta a cobra
+    mov esi, 0
+    .while esi < BOARD_COUNT
+        mov snakeX[4 * esi], -1
+        mov snakeY[4 * esi], -1 
+        inc esi
+    .endw
+
+    ; Sortea posições para a cobra
+    invoke Random, BOARD_WIDTH
+    mov snakeX[0], eax
+
+    invoke Random, BOARD_HEIGHT
+    mov snakeY[0], eax
+
+    mov snakeSize, 1
+
+    ; Sorteia a fruta
+    invoke RandomizarFruta
+
+    ; Sorteia a direção
+    invoke Random, 4
+    mov direction, eax
+
+    ret
+    
+Reiniciar endp
 
 ; ########################################################################
 
