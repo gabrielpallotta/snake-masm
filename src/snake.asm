@@ -1,31 +1,27 @@
 ; #########################################################################
-;
-;                               Snake game
-;                              Is it clear?
-;
+; Jogo Snake
+; - Gabriel Frônio Carvalho    - 16166
+; - Gabriel Pallotta Cardenete - 16168
+; - Vitor Bisterso dos Santos  - 16195
 ; #########################################################################
 
-    ; EU MUDEI ISSO ANTES TAVA .386 E AGORA FICOU .586 PRA PODER GERAR NUMEROS ALEATORIOS
-    ; SE COMEÇAR A DAR RUIM VOLTAR PARA .386
       .586
       .model flat, stdcall
       option casemap :none
 
 ; #########################################################################
 
-    include C:\masm32\include\windows.inc
+      include c:\masm32\include\windows.inc
+      include c:\masm32\include\masm32.inc
+      include c:\masm32\include\gdi32.inc
+      include c:\masm32\include\user32.inc
+      include c:\masm32\include\kernel32.inc
 
-    include C:\masm32\include\user32.inc
-    include C:\masm32\include\kernel32.inc
-    include C:\masm32\include\gdi32.inc
-
-    include C:\masm32\include\masm32rt.inc
-
-    includelib C:\masm32\lib\user32.lib
-    includelib C:\masm32\lib\kernel32.lib
-    includelib C:\masm32\lib\gdi32.lib
-    ; includelib C:\masm32\lib\
-
+      includelib C:\masm32\lib\masm32.lib
+      includelib C:\masm32\lib\gdi32.lib
+      includelib C:\masm32\lib\user32.lib
+      includelib C:\masm32\lib\kernel32.lib
+      
 ; #########################################################################
 
       szText MACRO Name, Text:VARARG
@@ -55,29 +51,21 @@
     RandomizarFruta PROTO
 
 ; #########################################################################
-    
-    ; RECT STRUCT
-    ;     left    DWORD  ?
-    ;     top     DWORD  ?
-    ;     right   DWORD  ?
-    ;     bottom  DWORD  ?
-    ; RECT ENDS
 
     .const
         WM_FINISH     equ WM_USER+100h
         
         ; Códigos dos bitmaps do jogo
-        BMP_BG        equ 100 
         BMP_SNAKE     equ 101 
         BMP_FRUIT     equ 102 
 
-        BOARD_HEIGHT  equ 10
-        BOARD_WIDTH   equ 10
+        BOARD_HEIGHT  equ 30
+        BOARD_WIDTH   equ 30
         ; Tamanho da área de jogo
         BOARD_COUNT   equ BOARD_HEIGHT * BOARD_WIDTH
 
         ; Tamanho do tile
-        TILE_SIZE     equ 20
+        TILE_SIZE     equ 25
 
     .data
         ; Variáveis de configuração
@@ -111,7 +99,6 @@
         
         ; Handle dos bitmaps
         hBmpSnake     dd ?
-        hBmpBg        dd ?
         hBmpFruit     dd ?
 
         ; Texto
@@ -223,10 +210,6 @@ LOCAL i:DWORD
 LOCAL j:DWORD
 
 .if uMsg == WM_CREATE
-
-        ; Carrega os bitmaps
-        invoke LoadBitmap, hInstance, BMP_BG
-        mov    hBmpBg, eax
         
         invoke LoadBitmap, hInstance, BMP_SNAKE
         mov    hBmpSnake, eax
@@ -244,8 +227,7 @@ LOCAL j:DWORD
         invoke Reiniciar
 
     .elseif uMsg == WM_DESTROY
-
-        invoke DeleteObject, hBmpBg
+    
         invoke DeleteObject, hBmpFruit
         invoke DeleteObject, hBmpSnake
 
@@ -349,7 +331,9 @@ TopXY endp
 ; Thread para tick do jogo
 ThreadProc PROC USES ecx Param:DWORD
 LOCAL i:DWORD
+    
     invoke WaitForSingleObject, hEventStart, 100
+
     .if eax == WAIT_TIMEOUT
 
         mov esi, snakeSize
